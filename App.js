@@ -6,20 +6,17 @@ import {
   FlatList,
   TouchableOpacity,
   Image,
-  Alert,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import * as SQLite from "expo-sqlite"; // Ensure this library supports `openDatabaseAsync`
+import * as SQLite from "expo-sqlite";
 import * as Location from "expo-location";
+import MapView, { Marker } from "react-native-maps";
 
-let db; // Declare the database instance globally
+let db;
 
 const initializeDatabase = async () => {
   try {
-    // Open or create the database asynchronously
     db = await SQLite.openDatabaseAsync("images.db");
-
-    // Create the images table if it doesn't already exist
     await db.execAsync(`
       CREATE TABLE IF NOT EXISTS images (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -29,73 +26,60 @@ const initializeDatabase = async () => {
         longitude REAL
       );
     `);
-
     console.log("Database initialized and table created (if not exists).");
   } catch (error) {
     console.error("Error initializing the database:", error);
   }
 };
 
-const fetchImagesFromDatabase = async (setImages) => {
+const fetchImagesFromDatabase = async (setImages, setMarkers) => {
   try {
     const rows = await db.getAllAsync("SELECT * FROM images");
-    const fetchedImages = rows.map((row) => row.uri); // Extract image URIs
-    setImages(fetchedImages); // Update the state with images
+    const fetchedImages = rows.map((row) => ({
+      id: row.id,
+      uri: row.uri,
+      latitude: row.latitude,
+      longitude: row.longitude,
+    }));
+    setImages(fetchedImages);
+    setMarkers(fetchedImages.filter((img) => img.latitude && img.longitude));
   } catch (error) {
     console.error("Error fetching images from database:", error);
   }
 };
 
 const addImageToDatabase = async (uri) => {
-  const timestamp = new Date().toISOString(); // Current timestamp
+  const timestamp = new Date().toISOString();
   let latitude = null;
   let longitude = null;
 
   try {
-    // Request location permissions
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status === "granted") {
       const location = await Location.getCurrentPositionAsync({});
       latitude = location.coords.latitude;
       longitude = location.coords.longitude;
-    } else {
-      console.warn(
-        "Location permission not granted. Saving without location data."
-      );
     }
-
-    // Insert image data into the database
     await db.runAsync(
       "INSERT INTO images (uri, timestamp, latitude, longitude) VALUES (?, ?, ?, ?)",
       [uri, timestamp, latitude, longitude]
     );
-
-    console.log(
-      `Image added to database:timestamp: ${timestamp}, URI: ${uri}, Latitude: ${latitude}, Longitude: ${longitude}`
-    );
+    console.log(`Image added: ${uri}, Lat: ${latitude}, Long: ${longitude}`);
   } catch (error) {
     console.error("Error inserting image metadata:", error);
   }
 };
 
-const logImagesFromDatabase = async () => {
-  try {
-    const rows = await db.getAllAsync("SELECT * FROM images");
-    console.log("Image data from database:", rows);
-  } catch (error) {
-    console.error("Error fetching images from database:", error);
-  }
-};
-
 export default function GalleryApp() {
-  const [images, setImages] = useState([]); // Array to store image URIs
+  const [images, setImages] = useState([]);
+  const [markers, setMarkers] = useState([]);
+  const [showMap, setShowMap] = useState(false);
 
   useEffect(() => {
     const setupDatabase = async () => {
-      await initializeDatabase(); // Initialize database
-      await fetchImagesFromDatabase(setImages); // Fetch initial images
+      await initializeDatabase();
+      await fetchImagesFromDatabase(setImages, setMarkers);
     };
-
     setupDatabase();
   }, []);
 
@@ -114,9 +98,9 @@ export default function GalleryApp() {
 
     if (!result.canceled) {
       const uri = result.assets[0].uri;
-      setImages((prevImages) => [...prevImages, uri]); // Add to state
-      await addImageToDatabase(uri, null, null); // Store in the database
-      await logImagesFromDatabase();
+      setImages((prevImages) => [...prevImages, { uri }]);
+      await addImageToDatabase(uri);
+      await fetchImagesFromDatabase(setImages, setMarkers);
     }
   };
 
@@ -134,16 +118,15 @@ export default function GalleryApp() {
 
     if (!result.canceled) {
       const uri = result.assets[0].uri;
-      setImages((prevImages) => [...prevImages, uri]); // Add to state
-      await addImageToDatabase(uri, null, null); // Store in the database
+      setImages((prevImages) => [...prevImages, { uri }]);
+      await addImageToDatabase(uri);
+      await fetchImagesFromDatabase(setImages, setMarkers);
     }
   };
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Image Gallery</Text>
-
-      {/* Buttons for picking and capturing images */}
       <View style={styles.buttonContainer}>
         <TouchableOpacity style={styles.button} onPress={pickImage}>
           <Text style={styles.buttonText}>Pick Image</Text>
@@ -151,18 +134,41 @@ export default function GalleryApp() {
         <TouchableOpacity style={styles.button} onPress={takePhoto}>
           <Text style={styles.buttonText}>Take Photo</Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() => setShowMap(!showMap)}
+        >
+          <Text style={styles.buttonText}>
+            {showMap ? "Show Gallery" : "Show Map"}
+          </Text>
+        </TouchableOpacity>
       </View>
 
-      {/* Gallery View */}
-      <FlatList
-        data={images}
-        keyExtractor={(item, index) => index.toString()}
-        numColumns={3} // Display in 3 columns
-        renderItem={({ item }) => (
-          <Image source={{ uri: item }} style={styles.image} />
-        )}
-        contentContainerStyle={styles.gallery}
-      />
+      {showMap ? (
+        <MapView style={styles.map}>
+          {markers.map((marker) => (
+            <Marker
+              key={marker.id}
+              coordinate={{
+                latitude: marker.latitude,
+                longitude: marker.longitude,
+              }}
+              title="Image Location"
+              description={`Photo id: ${marker.uri}`}
+            />
+          ))}
+        </MapView>
+      ) : (
+        <FlatList
+          data={images}
+          keyExtractor={(item, index) => index.toString()}
+          numColumns={3}
+          renderItem={({ item }) => (
+            <Image source={{ uri: item.uri }} style={styles.image} />
+          )}
+          contentContainerStyle={styles.gallery}
+        />
+      )}
     </View>
   );
 }
@@ -205,5 +211,9 @@ const styles = StyleSheet.create({
     height: 100,
     margin: 5,
     borderRadius: 10,
+  },
+  map: {
+    flex: 1,
+    marginTop: 10,
   },
 });
