@@ -10,10 +10,22 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@react-navigation/native": "^7.0.13",
+    "@react-navigation/stack": "^7.0.18",
     "expo": "~52.0.18",
+    "expo-camera": "^16.0.9",
+    "expo-location": "~18.0.4",
+    "expo-sqlite": "~15.0.3",
     "expo-status-bar": "~2.0.0",
     "react": "18.3.1",
-    "react-native": "0.76.5"
+    "react-native": "0.76.5",
+    "react-native-gesture-handler": "^2.21.2",
+    "react-native-maps": "^1.20.1",
+    "react-native-reanimated": "^3.16.5",
+    "react-native-safe-area-context": "^5.0.0",
+    "react-native-screens": "^4.3.0",
+    "expo-image-picker": "~16.0.3",
+    "expo-av": "~15.0.1"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0"
